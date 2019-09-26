@@ -335,7 +335,7 @@ class Productcustomerprice extends CommonObject
 	public function fetch_all($sortorder = '', $sortfield = '', $limit = 0, $offset = 0, $filter = array())
 	{
         // phpcs:enable
-		global $langs;
+		global $langs, $conf;
 
 		if ( empty($sortfield)) $sortfield = "t.rowid";
 		if ( empty($sortorder)) $sortorder = "DESC";
@@ -364,7 +364,56 @@ class Productcustomerprice extends CommonObject
 		$sql .= " t.import_key,";
 		$sql .= " soc.nom as socname,";
 		$sql .= " prod.ref as prodref";
-		$sql .= " FROM " . MAIN_DB_PREFIX . "product_customer_price as t ";
+		if (empty($conf->variants->enabled)) {
+			$sql .= " FROM " . MAIN_DB_PREFIX . "product_customer_price as t ";
+		} else {
+			// If variants are enabled:
+			// Build a union sql similar to product_customer_price above, but with additional
+			// rows for all variant products. Return calculated prices considering
+			// different prices for variants _and_ different prices for customers.
+			// the result will contain non variant products as well as variant products.
+			$sql .= " FROM (";
+			$sql .= "   SELECT ";
+			$sql .= "     *, 0 as isvariant FROM " . MAIN_DB_PREFIX . "product_customer_price as t ";
+			$sql .= "   UNION ";
+			$sql .= "   SELECT";
+			$sql .= "     pcp.rowid,";
+			$sql .= "     pcp.entity,";
+			$sql .= "     pcp.datec,";
+			$sql .= "     pcp.tms,";
+			$sql .= "     varprod.rowid AS fk_product,";
+			$sql .= "     pcp.fk_soc,";
+			$sql .= "     CASE";
+			$sql .= "       WHEN pac.variation_price_percentage = 1";
+			$sql .= "         THEN ROUND(pcp.price * (1 + pac.variation_price/100), 2)";
+			$sql .= "         ELSE pcp.price + pac.variation_price";
+			$sql .= "     END AS price,";
+			$sql .= "     CASE";
+			$sql .= "       WHEN pac.variation_price_percentage = 1";
+			$sql .= "         THEN ROUND(pcp.price_ttc * (1 + pac.variation_price/100), 2)";
+			$sql .= "         ELSE pcp.price_ttc + pac.variation_price";
+			$sql .= "     END AS price_ttc,";
+			$sql .= "     pcp.price_min,";
+			$sql .= "     pcp.price_min_ttc,";
+			$sql .= "     pcp.price_base_type,";
+			$sql .= "     pcp.default_vat_code,";
+			$sql .= "     pcp.tva_tx,";
+			$sql .= "     pcp.recuperableonly,";
+			$sql .= "     pcp.localtax1_tx,";
+			$sql .= "     pcp.localtax1_type,";
+			$sql .= "     pcp.localtax2_tx,";
+			$sql .= "     pcp.localtax2_type,";
+			$sql .= "     pcp.fk_user AS fk_user,";
+			$sql .= "     varprod.import_key,";
+			$sql .= "     1 as isvariant";
+			$sql .= "   FROM ";
+			$sql .= "     " . MAIN_DB_PREFIX . "product_customer_price pcp";
+			$sql .= "     LEFT JOIN " . MAIN_DB_PREFIX . "product_attribute_combination pac ON pac.fk_product_parent = pcp.fk_product";
+			$sql .= "     LEFT JOIN " . MAIN_DB_PREFIX . "product varprod ON varprod.rowid = pac.fk_product_child";
+			$sql .= "   WHERE";
+			$sql .= "     varprod.rowid IS NOT NULL";
+			$sql .= " ) AS t ";
+        }
 		$sql .= " ," . MAIN_DB_PREFIX . "product as prod ";
 		$sql .= " ," . MAIN_DB_PREFIX . "societe as soc ";
 		$sql .= " WHERE soc.rowid=t.fk_soc ";
